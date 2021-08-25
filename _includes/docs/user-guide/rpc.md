@@ -1,17 +1,91 @@
 * TOC
 {:toc}
 
-ThingsBoard allows you to send Remote Procedure Calls (RPC) from server-side applications to devices and vice versa.
-Basically, this feature allows you to send commands to devices and receive results of commands execution. 
-Similarly, you can execute a request from the device, apply some calculations or other server-side logic on the back-end and send the response back to the device.
-This guide covers ThingsBoard RPC capabilities. After reading this guide, you will get familiar with the following topics:
+ThingsBoard allows you to send commands (Remote Procedure Calls or [RPC](https://en.wikipedia.org/wiki/Remote_procedure_call)) 
+from the [dashboards](/docs/{{docsPrefix}}user-guide/dashboards/) or [server-side applications]() to devices and vice versa. 
+This guide covers ThingsBoard RPC feature capabilities. After reading this guide, you will get familiar with the following topics:
 
 - RPC types;
 - Basic RPC use-cases;
 - RPC client-side and server-side APIs;
 - RPC widgets.
 
-## RPC call types
+
+## Server-side RPC
+
+Server-side RPC is the type of RPC call that is sent from the server to the device. 
+For example, you may use this type of RPC to trigger reboot of the device or remotely turn the engine on or off.
+
+Server-side RPC can be divided into one-way and two-way:
+
+- One-way RPC request does not expect device to send any response back to the server.
+  For example, request to reboot the device;
+
+  {:refdef: style="text-align: center;"}
+  ![image](/images/user-guide/one-way-rpc.svg)
+  {: refdef}
+
+- Two-way RPC request is sent to the device and expects to receive a response from the device within a certain timeout.
+  For example, change the current engine state or get the current value of a certain parameter;
+
+  {:refdef: style="text-align: center;"}
+  ![image](/images/user-guide/two-way-rpc.svg)
+  {: refdef}
+  
+### Lightweight RPC
+
+By default, the RPC you send to the device via ThingsBoard is not persisted to any database and is very lightweight. 
+ThingsBoard will attempt to send the call to device if device is online. 
+The RPC may fail if there is no active connection with the target device within a configurable timeout period.
+The RPC may also fail in case of network issue between the server and the device or reboot of the server while the command is being delivered.
+
+To summarize, using lightweight RPC is preferable, if you would like to minimize load on the server and can tolerate that some commands may be lost when device is offline 
+or there is a server outage.
+
+### Persistent RPC
+
+Since version 3.3, ThingsBoard provides support of persistent RPC which are stored in the database. 
+The RPC will be delivered to the device once it goes online. 
+In case of any network failure, the RPC will be re-send to device for configurable number of times until it is delivered or expired.
+
+ThingsBoard supports following persistent RPC states:
+
+ * **QUEUED** - RPC was saved to the database;
+ * **SENT** - The platform performed attempt to deliver the RPC. For example, sent the confirmable CoAP message; 
+ * **DELIVERED** - The platform received confirmation from the device that the command was delivered. This is the final state of processing for the one-way command;
+ * **TIMEOUT** - The platform has not received confirmation from the device that the command was delivered within configurable time. The platform may try again if device will become online;
+ * **SUCCESSFUL** - The platform has received successful response from the device for a two-way RPC command;   
+ * **FAILED** - The platform has received unsuccessful response from the device for a two-way RPC command;
+ * **EXPIRED** - The RPC command has expired.
+
+#### Rule Engine events
+
+
+
+#### TTL Configuration
+
+To enable periodic cleanup of the RPC calls from the database, alter following [configuration](/docs/{{docsPrefix}}user-guide/install/config/) parameters:
+
+```
+export SQL_TTL_RPC_ENABLED=true
+export SQL_RPC_TTL_CHECKING_INTERVAL=7200000
+```
+{: .copy-code}
+
+Where:
+
+1. **SQL_TTL_RPC_ENABLED** <br>enables periodic RPC cleanup from the database.
+
+2. **SQL_RPC_TTL_CHECKING_INTERVAL** <br>configures how often persistent RPC cleanup procedure will be executed. By default, this parameter is set to two hours (in milliseconds).
+
+The system administrator can configure how many days the RPC calls are stored in the database for each Tenant Profile. This is **RPC TTL days configuration** parameter.
+See the screenshot below:
+
+{% include images-gallery.html imageCollection="tenant-profile-rpc" %}
+
+
+## Client-side RPC
+
 
 Thinsboard RPC feature can be divided into two types based on a originator: device-originated and server-originated RPC.
 In order to use more familiar names, we will name device-originated RPC calls as a **client-side** RPC 
@@ -21,21 +95,6 @@ and server-originated RPC as **server-side** RPC.
    ![image](/images/user-guide/client-side-rpc.svg)
    {: refdef}  
 
-Server-side RPC can be divided into one-way and two-way:
- 
- - One-way RPC request is sent to the device without delivery confirmation and obviously does not provide any response from the device. 
-   RPC may fail only if there is no active connection with the target device within a configurable timeout period.
-   
-   {:refdef: style="text-align: center;"}
-   ![image](/images/user-guide/one-way-rpc.svg)
-   {: refdef}
-   
- - Two-way RPC request is sent to the device and expects to receive a response from the device within a certain timeout. 
-   The Server-side request is blocked until the target device replies to the request.
-
-   {:refdef: style="text-align: center;"}
-   ![image](/images/user-guide/two-way-rpc.svg)
-   {: refdef}
 
 
 ## Device RPC API
@@ -92,51 +151,12 @@ You can set the PSM in the device profile or device configuration. This feature 
 After you send an RPC request to this device, the request will be saved in the database for the time you configured and the device will receive the request and send the response when it is turned on again.  
 In addition, every time you send the Persistent RPC, the response will contain RPC ID. Whenever you need to find a specific RPC and view its states and responses, you can do it with that ID through the database.
 
-#### Persistent RPC Configuration
-
-To configure parameters for sending a Persistent RPC request, first, you need to edit the ThingsBoard configuration file:
-
-```
-sudo nano /etc/thingsboard/conf/thingsboard.conf
-```
-{: .copy-code}
-
-Then, add the following lines to the configuration file to add these parameters:
-
-```
-export SQL_TTL_RPC_ENABLED=true
-export SQL_RPC_TTL_CHECKING_INTERVAL=7200000
-```
-{: .copy-code}
-
-Where:
-
-1. **SQL_TTL_RPC_ENABLED** <br>parameter is for configuring whether Persistent RPC data will be removed from the database in case it's outdated.
-
-2. **SQL_RPC_TTL_CHECKING_INTERVAL** <br>parameter is for configuring how often Persistent RPC will be checked whether it's outdated. By default, this parameter is set to two hours (in milliseconds).
-
-The system administrator can configure the default parameter for the tenants through the Tenant Profile. This is **RPC TTL days configuration** parameter.
-Configuring this parameter will change the number of days when RPC will be deleted from the database. See the screenshot below: 
-
-{% include images-gallery.html imageCollection="tenant-profile-rpc" %}
-
 #### RPC Rule chain events 
 
 In the Rule chain, you are able to configure events that will be dispatched every time you send an RPC request: RPC queued, RPC delivered, RPC successful, RPC timeout, RPC failed.
 Configured RPC events reflect [RPC states](/docs/{{docsPrefix}}user-guide/rpc/#rpc-states).
 
 {% include images-gallery.html imageCollection="rule-chain" %}
-
-#### Persistent RPC States
-
-Once you send an RPC, you can observe what exactly happened with the request that you sent in the Rule node events tab. 
-RPC states determine steps that happen when you send RPC request. There are five possible states that can occur when the request is sent:
-
-**QUEUED** - RPC was saved to the database;  
-**DELIVERED** - RPC was delivered to the device (for two-way RPC);  
-**SUCCESSFUL** - if RPC is one-way, SUCCESSFUL means that RPC was delivered to the device. If RPC is two-way, SUCCESSFUL means that we've already received response from the device;  
-**TIMEOUT** - RPC was not delivered to the device;  
-**FAILED** - an error occurred either while sending RPC, or during one of the steps.
 
 #### Usage of Persistent RPC
 
